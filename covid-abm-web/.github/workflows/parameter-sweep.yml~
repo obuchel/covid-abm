@@ -1,5 +1,0 @@
-
-strategy:
-  matrix: ${{fromJson(needs.setup.outputs.matrix)}}
-  fail-fast: false
-  max-parallel: 4  # Adjust based on GitHub plan
