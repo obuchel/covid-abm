@@ -1,0 +1,129 @@
+name: Single COVID-19 Simulation
+
+on:
+  workflow_dispatch:
+    inputs:
+      num_agents:
+        description: 'Number of agents'
+        required: true
+        default: '10000'
+        type: string
+      simulation_days:
+        description: 'Simulation duration (days)'
+        required: true
+        default: '180'
+        type: string
+      spread_chance:
+        description: 'Spread chance (%)'
+        required: true
+        default: '10'
+        type: string
+      precaution_rate:
+        description: 'Precaution rate (%)'
+        required: true
+        default: '50'
+        type: string
+      vaccination_rate:
+        description: 'Vaccination rate (%)'
+        required: true
+        default: '80'
+        type: string
+      num_replications:
+        description: 'Number of parallel replications'
+        required: true
+        default: '5'
+        type: string
+
+jobs:
+  simulate:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        replication: ${{ fromJson(format('[{0}]', join(range(1, fromJson(github.event.inputs.num_replications) + 1), ','))) }}
+      fail-fast: false
+      max-parallel: 5
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+      
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+      
+      - name: Run simulation (replication ${{ matrix.replication }})
+        run: |
+          python src/covid_abm_model.py \
+            --n_agents ${{ github.event.inputs.num_agents }} \
+            --simulation_days ${{ github.event.inputs.simulation_days }} \
+            --spread_chance ${{ github.event.inputs.spread_chance }} \
+            --precaution_rate ${{ github.event.inputs.precaution_rate }} \
+            --vaccination_rate ${{ github.event.inputs.vaccination_rate }} \
+            --replication ${{ matrix.replication }} \
+            --output "results_rep_${{ matrix.replication }}.csv"
+      
+      - name: Upload results artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: results-replication-${{ matrix.replication }}
+          path: results_rep_${{ matrix.replication }}.csv
+          retention-days: 30
+
+  aggregate:
+    needs: simulate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: results/
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      
+      - name: Install dependencies
+        run: |
+          pip install pandas matplotlib numpy
+      
+      - name: Aggregate results
+        run: |
+          python -c "
+          import pandas as pd
+          import glob
+          from pathlib import Path
+          
+          # Find all result CSVs
+          csv_files = glob.glob('results/**/*.csv', recursive=True)
+          
+          # Combine all results
+          dfs = [pd.read_csv(f) for f in csv_files]
+          combined = pd.concat(dfs, ignore_index=True)
+          
+          # Save combined results
+          combined.to_csv('combined_results.csv', index=False)
+          
+          # Print summary
+          print(f'\\nCombined {len(dfs)} replications')
+          print(f'Total rows: {len(combined)}')
+          print(f'\\nMean infected: {combined[\"infected\"].mean():.0f}')
+          print(f'Mean long COVID: {combined[\"long_covid_cases\"].mean():.0f}')
+          "
+      
+      - name: Upload combined results
+        uses: actions/upload-artifact@v4
+        with:
+          name: aggregated-results
+          path: combined_results.csv
+          retention-days: 90
