@@ -7,26 +7,32 @@ on:
         description: 'Number of agents'
         required: true
         default: '10000'
+        type: string
       simulation_days:
         description: 'Simulation duration (days)'
         required: true
         default: '180'
+        type: string
       spread_chance:
         description: 'Spread chance (%)'
         required: true
         default: '10'
+        type: string
       precaution_rate:
         description: 'Precaution rate (%)'
         required: true
         default: '50'
+        type: string
       vaccination_rate:
         description: 'Vaccination rate (%)'
         required: true
         default: '80'
+        type: string
       num_replications:
         description: 'Number of parallel replications'
         required: true
         default: '5'
+        type: string
 
 jobs:
   simulate:
@@ -35,35 +41,42 @@ jobs:
       matrix:
         replication: [1, 2, 3, 4, 5]
       fail-fast: false
-
+      max-parallel: 5
+    
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-
+      
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
           cache: 'pip'
-
+      
       - name: Install dependencies
         run: |
           pip install --upgrade pip
-          pip install -r requirements.txt
-          - name: Run simulation
+          if [ -f requirements.txt ]; then
+            pip install -r requirements.txt
+          else
+            pip install jax jaxlib numpy pandas matplotlib scipy tqdm
+          fi
+      
+      - name: Run simulation (replication ${{ matrix.replication }})
+        working-directory: covid-abm-web
         run: |
           python src/run_single_parameter.py \
-            --parameter num_agents \
-            --value ${{ github.event.inputs.num_agents }} \
+            --parameter "covid_spread_chance_pct" \
+            --value ${{ github.event.inputs.spread_chance }} \
             --n_runs 1 \
             --n_agents ${{ github.event.inputs.num_agents }} \
-            --output results_rep_${{ matrix.replication }}.csv
-
-      - name: Upload results
+            --output "results_rep_${{ matrix.replication }}.csv"
+      
+      - name: Upload results artifact
         uses: actions/upload-artifact@v4
         with:
           name: results-replication-${{ matrix.replication }}
-          path: results_rep_${{ matrix.replication }}.csv
+          path: covid-abm-web/results_rep_${{ matrix.replication }}.csv
           retention-days: 30
 
   aggregate:
@@ -72,29 +85,57 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-
+      
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
           path: results/
-
+      
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
-
+      
+      - name: Install dependencies
+        run: |
+          pip install pandas matplotlib numpy
+      
       - name: Aggregate results
         run: |
-          python src/aggregate_results_file.py \
-            --input_dir results/ \
-            --output combined_results.csv \
-            --plot results_plot.png
-
+          python -c "
+          import pandas as pd
+          import glob
+          from pathlib import Path
+          
+          # Find all result CSVs
+          csv_files = glob.glob('results/**/*.csv', recursive=True)
+          
+          if not csv_files:
+              print('No CSV files found!')
+              exit(1)
+          
+          # Combine all results
+          dfs = [pd.read_csv(f) for f in csv_files]
+          combined = pd.concat(dfs, ignore_index=True)
+          
+          # Save combined results
+          combined.to_csv('combined_results.csv', index=False)
+          
+          # Print summary
+          print(f'\nCombined {len(dfs)} replications')
+          print(f'Total rows: {len(combined)}')
+          
+          if 'infected' in combined.columns:
+              print(f'Mean infected: {combined[\"infected\"].mean():.0f}')
+          if 'long_covid_cases' in combined.columns:
+              print(f'Mean long COVID: {combined[\"long_covid_cases\"].mean():.0f}')
+          
+          print('\nColumns:', combined.columns.tolist())
+          "
+      
       - name: Upload combined results
         uses: actions/upload-artifact@v4
         with:
           name: aggregated-results
-          path: |
-            combined_results.csv
-            results_plot.png
+          path: combined_results.csv
           retention-days: 90
