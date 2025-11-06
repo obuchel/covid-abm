@@ -14,3 +14,5 @@
   targetPort = 3000
   publish = "build"
   autoLaunch = false
+[functions]
+  node_bundler = "esbuild"
