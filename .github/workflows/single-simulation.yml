@@ -1,0 +1,100 @@
+name: Single COVID-19 Simulation
+
+on:
+  workflow_dispatch:
+    inputs:
+      num_agents:
+        description: 'Number of agents'
+        required: true
+        default: '10000'
+      simulation_days:
+        description: 'Simulation duration (days)'
+        required: true
+        default: '180'
+      spread_chance:
+        description: 'Spread chance (%)'
+        required: true
+        default: '10'
+      precaution_rate:
+        description: 'Precaution rate (%)'
+        required: true
+        default: '50'
+      vaccination_rate:
+        description: 'Vaccination rate (%)'
+        required: true
+        default: '80'
+      num_replications:
+        description: 'Number of parallel replications'
+        required: true
+        default: '5'
+
+jobs:
+  simulate:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        replication: [1, 2, 3, 4, 5]
+      fail-fast: false
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          - name: Run simulation
+        run: |
+          python src/run_single_parameter.py \
+            --parameter num_agents \
+            --value ${{ github.event.inputs.num_agents }} \
+            --n_runs 1 \
+            --n_agents ${{ github.event.inputs.num_agents }} \
+            --output results_rep_${{ matrix.replication }}.csv
+
+      - name: Upload results
+        uses: actions/upload-artifact@v4
+        with:
+          name: results-replication-${{ matrix.replication }}
+          path: results_rep_${{ matrix.replication }}.csv
+          retention-days: 30
+
+  aggregate:
+    needs: simulate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: results/
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Aggregate results
+        run: |
+          python src/aggregate_results_file.py \
+            --input_dir results/ \
+            --output combined_results.csv \
+            --plot results_plot.png
+
+      - name: Upload combined results
+        uses: actions/upload-artifact@v4
+        with:
+          name: aggregated-results
+          path: |
+            combined_results.csv
+            results_plot.png
+          retention-days: 90
