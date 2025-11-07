@@ -1,0 +1,49 @@
+name: Test Simulation Setup
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      
+      - name: List project structure
+        run: |
+          echo "=== Root directory ==="
+          ls -la
+          echo ""
+          echo "=== covid-abm-web directory ==="
+          ls -la covid-abm-web/ || echo "covid-abm-web not found"
+          echo ""
+          echo "=== covid-abm-web/src directory ==="
+          ls -la covid-abm-web/src/ || echo "src not found"
+      
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install jax jaxlib numpy pandas matplotlib scipy tqdm
+      
+      - name: Test Python imports
+        working-directory: covid-abm-web
+        run: |
+          python -c "import jax; print('JAX version:', jax.__version__)"
+          python -c "import numpy; print('NumPy version:', numpy.__version__)"
+          python -c "import pandas; print('Pandas version:', pandas.__version__)"
+      
+      - name: Check Python script
+        working-directory: covid-abm-web
+        run: |
+          echo "=== Checking run_single_parameter.py ==="
+          python src/run_single_parameter.py --help || echo "Script needs different arguments"
+          echo ""
+          echo "=== Checking covid_abm_model.py ==="
+          head -20 src/covid_abm_model.py
