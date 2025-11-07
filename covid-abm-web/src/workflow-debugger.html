@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Workflow Debug Tool</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            max-width: 1200px;
+            margin: 40px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            border-radius: 8px;
+            padding: 30px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #2563eb;
+            margin-bottom: 10px;
+        }
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+        }
+        .input-group {
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: #333;
+        }
+        input {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e5e7eb;
+            border-radius: 6px;
+            font-size: 14px;
+            box-sizing: border-box;
+        }
+        input:focus {
+            outline: none;
+            border-color: #2563eb;
+        }
+        button {
+            background: #2563eb;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            margin-top: 10px;
+        }
+        button:hover {
+            background: #1d4ed8;
+        }
+        button:disabled {
+            background: #9ca3af;
+            cursor: not-allowed;
+        }
+        .results {
+            margin-top: 30px;
+        }
+        .workflow {
+            background: #f9fafb;
+            border: 2px solid #e5e7eb;
+            border-radius: 6px;
+            padding: 20px;
+            margin-bottom: 15px;
+        }
+        .workflow.selected {
+            border-color: #10b981;
+            background: #ecfdf5;
+        }
+        .workflow.problem {
+            border-color: #ef4444;
+            background: #fef2f2;
+        }
+        .workflow h3 {
+            margin: 0 0 10px 0;
+            color: #1f2937;
+        }
+        .workflow .badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: 600;
+            margin-left: 10px;
+        }
+        .badge.selected {
+            background: #10b981;
+            color: white;
+        }
+        .badge.problem {
+            background: #ef4444;
+            color: white;
+        }
+        .workflow-details {
+            margin-top: 10px;
+            font-size: 14px;
+            color: #4b5563;
+        }
+        .workflow-details div {
+            margin: 5px 0;
+        }
+        .workflow-details strong {
+            color: #1f2937;
+        }
+        .inputs-list {
+            margin-top: 10px;
+            padding: 10px;
+            background: white;
+            border-radius: 4px;
+        }
+        .inputs-list div {
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+            padding: 3px 0;
+        }
+        .error {
+            background: #fef2f2;
+            border: 2px solid #ef4444;
+            color: #991b1b;
+            padding: 15px;
+            border-radius: 6px;
+            margin-top: 20px;
+        }
+        .success {
+            background: #ecfdf5;
+            border: 2px solid #10b981;
+            color: #065f46;
+            padding: 15px;
+            border-radius: 6px;
+            margin-top: 20px;
+        }
+        .info {
+            background: #eff6ff;
+            border: 2px solid #3b82f6;
+            color: #1e40af;
+            padding: 15px;
+            border-radius: 6px;
+            margin-top: 20px;
+        }
+        code {
+            background: #f3f4f6;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+        }
+        .action-needed {
+            margin-top: 20px;
+            padding: 20px;
+            background: #fef3c7;
+            border: 2px solid #f59e0b;
+            border-radius: 6px;
+        }
+        .action-needed h3 {
+            margin-top: 0;
+            color: #92400e;
+        }
+        .action-needed ol {
+            margin: 10px 0;
+            padding-left: 20px;
+        }
+        .action-needed li {
+            margin: 8px 0;
+            color: #78350f;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔍 Workflow Debug Tool</h1>
+        <p class="subtitle">Find out which workflow your interface is actually calling</p>
+
+        <div class="input-group">
+            <label for="owner">GitHub Username/Organization:</label>
+            <input type="text" id="owner" placeholder="e.g., obuchel">
+        </div>
+
+        <div class="input-group">
+            <label for="repo">Repository Name:</label>
+            <input type="text" id="repo" placeholder="e.g., covid-abm-web">
+        </div>
+
+        <div class="input-group">
+            <label for="token">GitHub Token:</label>
+            <input type="password" id="token" placeholder="ghp_...">
+        </div>
+
+        <button id="checkBtn" onclick="checkWorkflows()">Check Workflows</button>
+
+        <div id="results" class="results"></div>
+    </div>
+
+    <script>
+        async function checkWorkflows() {
+            const owner = document.getElementById('owner').value.trim();
+            const repo = document.getElementById('repo').value.trim();
+            const token = document.getElementById('token').value.trim();
+            const resultsDiv = document.getElementById('results');
+
+            if (!owner || !repo || !token) {
+                resultsDiv.innerHTML = '<div class="error">Please fill in all fields!</div>';
+                return;
+            }
+
+            resultsDiv.innerHTML = '<div class="info">🔄 Checking workflows...</div>';
+
+            try {
+                // Fetch workflows
+                const workflowsUrl = `https://api.github.com/repos/${owner}/${repo}/actions/workflows`;
+                const response = await fetch(workflowsUrl, {
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Accept': 'application/vnd.github.v3+json',
+                    }
+                });
+
+                if (!response.ok) {
+                    throw new Error(`GitHub API error: ${response.status} ${response.statusText}`);
+                }
+
+                const data = await response.json();
+                const workflows = data.workflows || [];
+
+                // Find which one matches the interface criteria
+                const selectedWorkflow = workflows.find(w => 
+                    w.name.includes('Single') || w.path.includes('single-simulation')
+                );
+
+                // Display results
+                let html = `<h2>📋 Found ${workflows.length} Workflow(s)</h2>`;
+
+                if (workflows.length === 0) {
+                    html += '<div class="error">❌ No workflows found in this repository!</div>';
+                } else {
+                    // Show each workflow
+                    for (const workflow of workflows) {
+                        const isSelected = workflow.id === selectedWorkflow?.id;
+                        const matchesName = workflow.name.includes('Single');
+                        const matchesPath = workflow.path.includes('single-simulation');
+                        
+                        // Fetch workflow file to check inputs
+                        let inputsHtml = '<div class="info">Fetching workflow file...</div>';
+                        try {
+                            const fileResponse = await fetch(workflow.html_url.replace('github.com', 'raw.githubusercontent.com').replace('/blob/', '/'), {
+                                headers: {
+                                    'Authorization': `Bearer ${token}`,
+                                }
+                            });
+                            
+                            if (fileResponse.ok) {
+                                const fileContent = await fileResponse.text();
+                                const inputMatches = fileContent.match(/^\s{2,8}(\w+):\s*$/gm) || [];
+                                const inputs = inputMatches.map(m => m.trim().replace(':', ''));
+                                
+                                const requiredInputs = ['num_agents', 'simulation_days', 'spread_chance', 'precaution_rate', 'vaccination_rate', 'num_replications'];
+                                const hasAllInputs = requiredInputs.every(input => inputs.includes(input));
+                                
+                                inputsHtml = '<div class="inputs-list">';
+                                inputsHtml += `<strong>${hasAllInputs ? '✅' : '❌'} Inputs found (${inputs.length}):</strong><br>`;
+                                requiredInputs.forEach(req => {
+                                    const has = inputs.includes(req);
+                                    inputsHtml += `<div>${has ? '✅' : '❌'} ${req}</div>`;
+                                });
+                                inputsHtml += '</div>';
+                                
+                                if (isSelected && !hasAllInputs) {
+                                    workflow.hasProblem = true;
+                                }
+                            }
+                        } catch (e) {
+                            inputsHtml = '<div class="error">Could not fetch workflow file</div>';
+                        }
+                        
+                        const cssClass = workflow.hasProblem ? 'workflow problem' : (isSelected ? 'workflow selected' : 'workflow');
+                        const badge = workflow.hasProblem ? '<span class="badge problem">⚠️ PROBLEM - MISSING INPUTS</span>' : 
+                                     (isSelected ? '<span class="badge selected">✅ SELECTED BY INTERFACE</span>' : '');
+                        
+                        html += `
+                            <div class="${cssClass}">
+                                <h3>${workflow.name}${badge}</h3>
+                                <div class="workflow-details">
+                                    <div><strong>Path:</strong> <code>${workflow.path}</code></div>
+                                    <div><strong>ID:</strong> ${workflow.id}</div>
+                                    <div><strong>State:</strong> ${workflow.state}</div>
+                                    <div><strong>Matches "Single":</strong> ${matchesName ? '✅ Yes' : '❌ No'}</div>
+                                    <div><strong>Matches "single-simulation":</strong> ${matchesPath ? '✅ Yes' : '❌ No'}</div>
+                                    ${inputsHtml}
+                                    <div><strong>View on GitHub:</strong> <a href="${workflow.html_url}" target="_blank">Open →</a></div>
+                                </div>
+                            </div>
+                        `;
+                    }
+
+                    // Show what needs to be done
+                    if (selectedWorkflow?.hasProblem) {
+                        html += `
+                            <div class="action-needed">
+                                <h3>🚨 ACTION REQUIRED</h3>
+                                <p>Your interface is calling <strong>"${selectedWorkflow.name}"</strong> but it's MISSING the required inputs!</p>
+                                <p><strong>You need to:</strong></p>
+                                <ol>
+                                    <li>Go to GitHub: <a href="${selectedWorkflow.html_url}" target="_blank">${selectedWorkflow.path}</a></li>
+                                    <li>Click the pencil icon (Edit)</li>
+                                    <li>Replace the entire contents with the correct workflow file</li>
+                                    <li>Make sure it has all 6 inputs: num_agents, simulation_days, spread_chance, precaution_rate, vaccination_rate, num_replications</li>
+                                    <li>Commit the changes</li>
+                                    <li>Wait 30 seconds and try again</li>
+                                </ol>
+                            </div>
+                        `;
+                    } else if (selectedWorkflow) {
+                        html += '<div class="success">✅ The selected workflow appears to have all required inputs!</div>';
+                    } else {
+                        html += '<div class="error">❌ No workflow matches the interface criteria (must have "Single" in name or "single-simulation" in path)</div>';
+                    }
+                }
+
+                resultsDiv.innerHTML = html;
+
+            } catch (error) {
+                resultsDiv.innerHTML = `<div class="error">❌ Error: ${error.message}</div>`;
+            }
+        }
+    </script>
+</body>
+</html>
