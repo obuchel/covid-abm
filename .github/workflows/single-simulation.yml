@@ -45,7 +45,7 @@ jobs:
           python-version: '3.10'
       
       - name: Install dependencies
-        run: pip install "jax[cpu]" numpy pandas
+        run: pip install "jax[cpu]" numpy pandas matplotlib
       
       - name: Run simulation
         env:
@@ -55,7 +55,7 @@ jobs:
           PRECAUTION_RATE: ${{ github.event.inputs.precaution_rate }}
           VACCINATION_RATE: ${{ github.event.inputs.vaccination_rate }}
         run: |
-          python << 'EOF'
+          python3 -c "
           import os
           from covid_abm_model import FixedGPUABM
           import pandas as pd
@@ -67,6 +67,8 @@ jobs:
           precaution_rate = float(os.environ['PRECAUTION_RATE'])
           vaccination_rate = float(os.environ['VACCINATION_RATE'])
           
+          print(f'Starting simulation with {num_agents} agents for {simulation_days} days')
+          
           # Initialize and configure ABM
           abm = FixedGPUABM()
           abm.config['max_days'] = simulation_days
@@ -76,12 +78,17 @@ jobs:
           
           # Run simulation
           abm.initialize_simulation(N=num_agents, seed=42)
-          results = abm.run_simulation(verbose=True)
+          results = abm.run_simulation(verbose=True, save_timeseries=False)
+          
+          # Remove timeseries if present to save only summary
+          if 'timeseries' in results:
+              del results['timeseries']
           
           # Save results
           pd.DataFrame([results]).to_csv('results.csv', index=False)
-          print("Simulation completed successfully!")
-          EOF
+          print('Simulation completed successfully!')
+          print(f'Results saved to results.csv')
+          "
       
       - uses: actions/upload-artifact@v4
         if: always()
