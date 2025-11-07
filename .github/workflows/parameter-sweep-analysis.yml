@@ -1,0 +1,256 @@
+name: Parameter Sweep Analysis
+
+on:
+  workflow_dispatch:
+    inputs:
+      sweep_parameter:
+        description: 'Parameter to sweep'
+        required: true
+        type: choice
+        options:
+          - 'spread_chance'
+          - 'precaution_rate'
+          - 'vaccination_rate'
+        default: 'spread_chance'
+      sweep_values:
+        description: 'Comma-separated values to test (e.g., 2,5,10,20)'
+        required: true
+        default: '2,5,10,20'
+        type: string
+      num_replications:
+        description: 'Replications per parameter value'
+        required: true
+        default: '10'
+        type: string
+      num_agents:
+        description: 'Number of agents'
+        required: true
+        default: '10000'
+        type: string
+      simulation_days:
+        description: 'Simulation duration (days)'
+        required: true
+        default: '180'
+        type: string
+
+jobs:
+  # Generate parameter combinations
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - name: Generate parameter matrix
+        id: set-matrix
+        run: |
+          # Parse sweep values
+          IFS=',' read -ra VALUES <<< "${{ github.event.inputs.sweep_values }}"
+          
+          # Generate matrix
+          matrix="["
+          first=true
+          for value in "${VALUES[@]}"; do
+            for rep in $(seq 1 ${{ github.event.inputs.num_replications }}); do
+              if [ "$first" = false ]; then
+                matrix+=","
+              fi
+              matrix+="{\"value\":\"$value\",\"replication\":\"$rep\"}"
+              first=false
+            done
+          done
+          matrix+="]"
+          
+          echo "matrix=$matrix" >> $GITHUB_OUTPUT
+
+  # Run simulations
+  simulate:
+    needs: setup
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include: ${{ fromJson(needs.setup.outputs.matrix) }}
+      fail-fast: false
+      max-parallel: 10
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+      
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          if [ -f requirements.txt ]; then
+            pip install -r requirements.txt
+          else
+            pip install jax jaxlib numpy pandas matplotlib scipy tqdm
+          fi
+      
+      - name: Run simulation
+        working-directory: covid-abm-web
+        run: |
+          python src/run_single_parameter.py \
+            --parameter "${{ github.event.inputs.sweep_parameter }}" \
+            --value ${{ matrix.value }} \
+            --n_runs 1 \
+            --n_agents ${{ github.event.inputs.num_agents }} \
+            --output "results_${matrix.value}_rep${matrix.replication}.csv"
+      
+      - name: Upload results artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: results-val${{ matrix.value }}-rep${{ matrix.replication }}
+          path: covid-abm-web/results_*.csv
+          retention-days: 30
+
+  # Aggregate and analyze
+  analyze:
+    needs: simulate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: results/
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      
+      - name: Install dependencies
+        run: |
+          pip install pandas matplotlib numpy seaborn scipy
+      
+      - name: Aggregate and create plots
+        run: |
+          python -c "
+          import pandas as pd
+          import matplotlib.pyplot as plt
+          import numpy as np
+          import glob
+          from pathlib import Path
+          
+          # Find all CSVs
+          csv_files = glob.glob('results/**/*.csv', recursive=True)
+          print(f'Found {len(csv_files)} result files')
+          
+          if not csv_files:
+              print('No results found!')
+              exit(1)
+          
+          # Load all results
+          dfs = []
+          for f in csv_files:
+              df = pd.read_csv(f)
+              # Extract parameter value and replication from filename
+              filename = Path(f).stem
+              parts = filename.split('_')
+              for i, part in enumerate(parts):
+                  if part == 'results' and i+1 < len(parts):
+                      df['param_value'] = float(parts[i+1])
+                  if 'rep' in part:
+                      df['replication'] = int(part.replace('rep', ''))
+              dfs.append(df)
+          
+          combined = pd.concat(dfs, ignore_index=True)
+          combined.to_csv('all_results.csv', index=False)
+          print(f'Combined: {len(combined)} rows')
+          
+          # Get unique parameter values
+          param_values = sorted(combined['param_value'].unique())
+          
+          # Metrics to analyze
+          metrics = [
+              ('infected', 'Total Infected', 'blue'),
+              ('reinfected', 'Reinfections', 'orange'),
+              ('long_covid_cases', 'Long COVID Cases', 'red'),
+              ('min_productivity', 'Min Productivity (%)', 'green')
+          ]
+          
+          # Create comprehensive plot
+          fig, axes = plt.subplots(len(metrics), 2, figsize=(14, 12))
+          fig.suptitle(f'Parameter Sweep: {\"${{ github.event.inputs.sweep_parameter }}\"}', 
+                      fontsize=16, fontweight='bold')
+          
+          for idx, (metric, label, color) in enumerate(metrics):
+              if metric not in combined.columns:
+                  continue
+              
+              # Left: Line plot with error bars
+              ax_line = axes[idx, 0]
+              
+              means = []
+              stds = []
+              for val in param_values:
+                  data = combined[combined['param_value'] == val][metric]
+                  means.append(data.mean())
+                  stds.append(data.std())
+              
+              ax_line.errorbar(param_values, means, yerr=stds, 
+                             marker='o', color=color, linewidth=2, capsize=5)
+              ax_line.set_xlabel('${{ github.event.inputs.sweep_parameter }}')
+              ax_line.set_ylabel(label)
+              ax_line.grid(True, alpha=0.3)
+              ax_line.set_title(f'{label} vs Parameter')
+              
+              # Right: Box plot
+              ax_box = axes[idx, 1]
+              
+              box_data = [combined[combined['param_value'] == val][metric].values 
+                         for val in param_values]
+              
+              bp = ax_box.boxplot(box_data, positions=param_values, widths=np.diff(param_values).min()*0.3)
+              ax_box.scatter(param_values, means, color='red', marker='^', s=100, zorder=10, label='Mean')
+              ax_box.set_xlabel('${{ github.event.inputs.sweep_parameter }}')
+              ax_box.set_ylabel(label)
+              ax_box.grid(True, alpha=0.3)
+              ax_box.set_title(f'{label} Distribution')
+              ax_box.legend()
+          
+          plt.tight_layout()
+          plt.savefig('parameter_sweep_analysis.png', dpi=300, bbox_inches='tight')
+          print('✅ Plot saved: parameter_sweep_analysis.png')
+          
+          # Create summary statistics
+          with open('sweep_summary.txt', 'w') as f:
+              f.write('PARAMETER SWEEP SUMMARY\\n')
+              f.write('='*60 + '\\n\\n')
+              f.write(f'Parameter: ${{ github.event.inputs.sweep_parameter }}\\n')
+              f.write(f'Values tested: {param_values}\\n')
+              f.write(f'Replications per value: ${{ github.event.inputs.num_replications }}\\n\\n')
+              
+              for metric, label, _ in metrics:
+                  if metric not in combined.columns:
+                      continue
+                  f.write(f'{label}:\\n')
+                  f.write('-'*40 + '\\n')
+                  for val in param_values:
+                      data = combined[combined['param_value'] == val][metric]
+                      f.write(f'  {\"${{ github.event.inputs.sweep_parameter }}\"} = {val}:\\n')
+                      f.write(f'    Mean: {data.mean():.2f}\\n')
+                      f.write(f'    Std:  {data.std():.2f}\\n')
+                      f.write(f'    Min:  {data.min():.2f}\\n')
+                      f.write(f'    Max:  {data.max():.2f}\\n')
+                  f.write('\\n')
+          
+          print('✅ Summary saved: sweep_summary.txt')
+          "
+      
+      - name: Upload analysis results
+        uses: actions/upload-artifact@v4
+        with:
+          name: parameter-sweep-analysis
+          path: |
+            all_results.csv
+            parameter_sweep_analysis.png
+            sweep_summary.txt
+          retention-days: 90
