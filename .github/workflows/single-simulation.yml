@@ -30,17 +30,12 @@ on:
       num_replications:
         description: 'Number of parallel replications'
         required: true
-        default: '5'
+        default: '1'
         type: string
 
 jobs:
   simulate:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        replication: [1, 2, 3, 4, 5]
-      fail-fast: false
-      max-parallel: 5
     
     steps:
       - name: Checkout code
@@ -50,132 +45,110 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
-          cache: 'pip'
       
       - name: Install dependencies
         run: |
           pip install --upgrade pip
-          if [ -f requirements.txt ]; then
-            pip install -r requirements.txt
-          else
-            pip install jax jaxlib numpy pandas matplotlib scipy tqdm
-          fi
+          pip install jax jaxlib numpy pandas matplotlib scipy tqdm
       
-      - name: Run simulation (replication ${{ matrix.replication }})
+      - name: List files (debug)
         run: |
-          python -c "
+          echo "=== Current directory ==="
+          pwd
+          echo "=== Files in current directory ==="
+          ls -la
+          echo "=== Looking for Python files ==="
+          find . -name "*.py" -type f
+      
+      - name: Create test simulation script
+        run: |
+          cat > run_test.py << 'EOF'
           import sys
-          sys.path.insert(0, '.')
-          from covid_abm_model import FixedGPUABM
+          import os
+          
+          # Try to import the model
+          try:
+              from covid_abm_model import FixedGPUABM
+              print("✅ Successfully imported FixedGPUABM")
+          except ImportError as e:
+              print(f"❌ Failed to import: {e}")
+              print(f"Python path: {sys.path}")
+              print(f"Current dir: {os.getcwd()}")
+              print(f"Files here: {os.listdir('.')}")
+              sys.exit(1)
+          
           import pandas as pd
           
-          # Initialize and run simulation
+          # Run a simple simulation
+          print("\n🚀 Starting simulation...")
           abm = FixedGPUABM()
+          
+          # Set parameters
           abm.config['max_days'] = ${{ github.event.inputs.simulation_days }}
           abm.config['covid_spread_chance_pct'] = ${{ github.event.inputs.spread_chance }}
           abm.config['precaution_pct'] = ${{ github.event.inputs.precaution_rate }}
           abm.config['vaccination_pct'] = ${{ github.event.inputs.vaccination_rate }}
           
+          # Initialize
           abm.initialize_simulation(
               N=${{ github.event.inputs.num_agents }},
-              seed=42 + ${{ matrix.replication }}
+              seed=42
           )
           
+          # Run with timeseries tracking
           results = abm.run_simulation(verbose=True, save_timeseries=True)
           
+          # Extract timeseries
+          timeseries = results.pop('timeseries', None)
+          
           # Save summary
-          timeseries = results.pop('timeseries')
           summary_df = pd.DataFrame([results])
-          summary_df['replication'] = ${{ matrix.replication }}
-          summary_df.to_csv('results_summary_rep_${{ matrix.replication }}.csv', index=False)
+          summary_df.to_csv('results_summary.csv', index=False)
+          print(f"\n✅ Saved summary to results_summary.csv")
           
-          # Save timeseries
-          ts_df = pd.DataFrame(timeseries)
-          ts_df['replication'] = ${{ matrix.replication }}
-          ts_df.to_csv('results_timeseries_rep_${{ matrix.replication }}.csv', index=False)
+          # Save timeseries if available
+          if timeseries:
+              ts_df = pd.DataFrame(timeseries)
+              ts_df.to_csv('results_timeseries.csv', index=False)
+              print(f"✅ Saved timeseries ({len(timeseries)} days) to results_timeseries.csv")
+          else:
+              print("⚠️  No timeseries data available")
           
-          print(f'\nSaved summary and timeseries data for replication ${{ matrix.replication }}')
-          "
+          print("\n✅ Simulation complete!")
+          EOF
+          
+          echo "=== Created run_test.py ==="
+          cat run_test.py
+      
+      - name: Run simulation
+        run: |
+          python run_test.py
+      
+      - name: Verify output files
+        run: |
+          echo "=== Output files ==="
+          ls -la *.csv || echo "No CSV files found"
+          if [ -f results_summary.csv ]; then
+            echo "=== Summary CSV ==="
+            cat results_summary.csv
+          fi
+          if [ -f results_timeseries.csv ]; then
+            echo "=== Timeseries CSV (first 10 lines) ==="
+            head -n 10 results_timeseries.csv
+          fi
       
       - name: Upload summary results
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: summary-replication-${{ matrix.replication }}
-          path: results_summary_rep_${{ matrix.replication }}.csv
+          name: summary-results
+          path: results_summary.csv
           retention-days: 30
       
       - name: Upload timeseries results
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: timeseries-replication-${{ matrix.replication }}
-          path: results_timeseries_rep_${{ matrix.replication }}.csv
+          name: timeseries-results
+          path: results_timeseries.csv
           retention-days: 30
-
-  aggregate:
-    needs: simulate
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-      
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: results/
-      
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.10'
-      
-      - name: Install dependencies
-        run: |
-          pip install pandas matplotlib numpy
-      
-      - name: Aggregate results
-        run: |
-          python -c "
-          import pandas as pd
-          import glob
-          from pathlib import Path
-          
-          # Find all summary CSVs
-          summary_files = glob.glob('results/**/results_summary_*.csv', recursive=True)
-          timeseries_files = glob.glob('results/**/results_timeseries_*.csv', recursive=True)
-          
-          if not summary_files:
-              print('No summary CSV files found!')
-              exit(1)
-          
-          # Combine summary results
-          summary_dfs = [pd.read_csv(f) for f in summary_files]
-          combined_summary = pd.concat(summary_dfs, ignore_index=True)
-          combined_summary.to_csv('combined_summary.csv', index=False)
-          
-          # Combine timeseries results
-          if timeseries_files:
-              ts_dfs = [pd.read_csv(f) for f in timeseries_files]
-              combined_timeseries = pd.concat(ts_dfs, ignore_index=True)
-              combined_timeseries.to_csv('combined_timeseries.csv', index=False)
-              print(f'Combined {len(ts_dfs)} timeseries files')
-          
-          # Print summary
-          print(f'\nCombined {len(summary_dfs)} replications')
-          print(f'Summary rows: {len(combined_summary)}')
-          
-          if 'infected' in combined_summary.columns:
-              print(f'Mean infected: {combined_summary[\"infected\"].mean():.0f}')
-          if 'long_covid_cases' in combined_summary.columns:
-              print(f'Mean long COVID: {combined_summary[\"long_covid_cases\"].mean():.0f}')
-          
-          print('\nColumns:', combined_summary.columns.tolist())
-          "
-      
-      - name: Upload combined results
-        uses: actions/upload-artifact@v4
-        with:
-          name: combined-results
-          path: |
-            combined_summary.csv
-            combined_timeseries.csv
-          retention-days: 90
