@@ -1,5 +1,4 @@
 name: Single COVID-19 Simulation (Failsafe)
-
 on:
   workflow_dispatch:
     inputs:
@@ -12,6 +11,26 @@ on:
         description: 'Simulation duration (days)'
         required: true
         default: '180'
+        type: string
+      spread_chance:
+        description: 'Spread chance (%)'
+        required: true
+        default: '10'
+        type: string
+      precaution_rate:
+        description: 'Precaution rate (%)'
+        required: true
+        default: '50'
+        type: string
+      vaccination_rate:
+        description: 'Vaccination rate (%)'
+        required: true
+        default: '80'
+        type: string
+      num_replications:
+        description: 'Number of parallel replications'
+        required: true
+        default: '1'
         type: string
 
 jobs:
@@ -47,6 +66,9 @@ jobs:
               # Create and configure
               abm = FixedGPUABM()
               abm.config['max_days'] = ${{ github.event.inputs.simulation_days }}
+              abm.config['covid_spread_chance_pct'] = ${{ github.event.inputs.spread_chance }}
+              abm.config['precaution_pct'] = ${{ github.event.inputs.precaution_rate }}
+              abm.config['vaccination_pct'] = ${{ github.event.inputs.vaccination_rate }}
               
               # Initialize
               abm.initialize_simulation(
@@ -58,7 +80,13 @@ jobs:
               sig = inspect.signature(abm.run_simulation)
               has_timeseries = 'save_timeseries' in sig.parameters
               
-              print(f"Model supports save_timeseries: {has_timeseries}")
+              print(f"Configuration:")
+              print(f"  Agents: ${{ github.event.inputs.num_agents }}")
+              print(f"  Days: ${{ github.event.inputs.simulation_days }}")
+              print(f"  Spread chance: ${{ github.event.inputs.spread_chance }}%")
+              print(f"  Precaution rate: ${{ github.event.inputs.precaution_rate }}%")
+              print(f"  Vaccination rate: ${{ github.event.inputs.vaccination_rate }}%")
+              print(f"  Model supports save_timeseries: {has_timeseries}")
               
               # Run simulation
               if has_timeseries:
