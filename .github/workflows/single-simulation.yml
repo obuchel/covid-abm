@@ -1,5 +1,4 @@
-name: Single Simulation WORKING VERSION
-
+name: Single COVID-19 Simulation
 on:
   workflow_dispatch:
     inputs:
@@ -52,115 +51,51 @@ jobs:
           pip install --upgrade pip
           pip install "jax[cpu]" numpy pandas matplotlib scipy tqdm
       
-      - name: Run simulation with error handling
+      - name: Run simulation
         run: |
-          python << 'ENDOFPYTHON'
+          python << 'EOF'
           import sys
           import traceback
           import pandas as pd
           import inspect
           
           try:
-              # Import model
               from covid_abm_model import FixedGPUABM
               
-              # Create and configure
               abm = FixedGPUABM()
               abm.config['max_days'] = ${{ github.event.inputs.simulation_days }}
               abm.config['covid_spread_chance_pct'] = ${{ github.event.inputs.spread_chance }}
               abm.config['precaution_pct'] = ${{ github.event.inputs.precaution_rate }}
               abm.config['vaccination_pct'] = ${{ github.event.inputs.vaccination_rate }}
               
-              # Initialize
-              abm.initialize_simulation(
-                  N=${{ github.event.inputs.num_agents }},
-                  seed=42
-              )
+              abm.initialize_simulation(N=${{ github.event.inputs.num_agents }}, seed=42)
               
-              # Check if save_timeseries is supported
               sig = inspect.signature(abm.run_simulation)
               has_timeseries = 'save_timeseries' in sig.parameters
               
-              print(f"Configuration:")
-              print(f"  Agents: ${{ github.event.inputs.num_agents }}")
-              print(f"  Days: ${{ github.event.inputs.simulation_days }}")
-              print(f"  Spread chance: ${{ github.event.inputs.spread_chance }}%")
-              print(f"  Precaution rate: ${{ github.event.inputs.precaution_rate }}%")
-              print(f"  Vaccination rate: ${{ github.event.inputs.vaccination_rate }}%")
-              print(f"  Model supports save_timeseries: {has_timeseries}")
-              
-              # Run simulation
               if has_timeseries:
                   results = abm.run_simulation(verbose=True, save_timeseries=True)
+                  timeseries = results.pop('timeseries', None)
               else:
-                  print("⚠️ Model doesn't support save_timeseries, running without it")
                   results = abm.run_simulation(verbose=True)
+                  timeseries = None
               
-              # Extract timeseries if available
-              timeseries = results.pop('timeseries', None)
+              pd.DataFrame([results]).to_csv('results_summary.csv', index=False)
               
-              # Save summary
-              summary_df = pd.DataFrame([results])
-              summary_df.to_csv('results_summary.csv', index=False)
-              print(f"✅ Saved summary: {len(summary_df)} rows")
-              
-              # Save timeseries or create placeholder
               if timeseries:
-                  ts_df = pd.DataFrame(timeseries)
-                  ts_df.to_csv('results_timeseries.csv', index=False)
-                  print(f"✅ Saved timeseries: {len(timeseries)} days")
+                  pd.DataFrame(timeseries).to_csv('results_timeseries.csv', index=False)
               else:
-                  # Create placeholder with note
-                  placeholder_df = pd.DataFrame([{
-                      'day': 0,
-                      'infected': 0,
-                      'immune': 0,
-                      'long_covid': 0,
-                      'note': 'Timeseries not available - update model to enable'
-                  }])
-                  placeholder_df.to_csv('results_timeseries.csv', index=False)
-                  print("⚠️ Created placeholder timeseries (update model for real data)")
+                  pd.DataFrame([{'day': 0, 'infected': 0, 'immune': 0, 'long_covid': 0}]).to_csv('results_timeseries.csv', index=False)
               
-              print("\n✅ SUCCESS - Simulation completed!")
+              print("\n✅ SUCCESS")
               
           except Exception as e:
-              print(f"\n❌ FATAL ERROR: {e}")
-              print("\nFull traceback:")
+              print(f"\n❌ ERROR: {e}")
               traceback.print_exc()
-              
-              # Save error info
-              with open('error_log.txt', 'w') as f:
-                  f.write(f"Error: {str(e)}\n\n")
-                  traceback.print_exc(file=f)
-              
-              # Create placeholder files so artifacts exist
-              pd.DataFrame([{
-                  'error': str(e),
-                  'status': 'failed'
-              }]).to_csv('results_summary.csv', index=False)
-              
-              pd.DataFrame([{
-                  'error': 'Simulation failed'
-              }]).to_csv('results_timeseries.csv', index=False)
-              
+              pd.DataFrame([{'error': str(e)}]).to_csv('results_summary.csv', index=False)
+              pd.DataFrame([{'error': str(e)}]).to_csv('results_timeseries.csv', index=False)
               sys.exit(1)
-          ENDOFPYTHON
-      
-      - name: Verify outputs
-        if: always()
-        run: |
-          echo "=== Generated files ==="
-          ls -lh *.csv *.txt 2>/dev/null || echo "No files"
-          
-          if [ -f results_summary.csv ]; then
-            echo -e "\n=== Summary ==="
-            cat results_summary.csv
-          fi
-          
-          if [ -f error_log.txt ]; then
-            echo -e "\n=== Error Log ==="
-            cat error_log.txt
-          fi
+          EOF
       
       - name: Upload results
         if: always()
@@ -170,5 +105,4 @@ jobs:
           path: |
             results_summary.csv
             results_timeseries.csv
-            error_log.txt
           retention-days: 30
