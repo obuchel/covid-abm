@@ -1,5 +1,4 @@
 name: 🔍 Diagnostic Test
-
 on:
   workflow_dispatch:
 
