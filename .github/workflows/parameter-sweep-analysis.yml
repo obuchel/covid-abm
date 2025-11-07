@@ -1,5 +1,4 @@
 name: Parameter Sweep Analysis
-
 on:
   workflow_dispatch:
     inputs:
