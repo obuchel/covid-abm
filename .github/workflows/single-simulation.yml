@@ -76,22 +76,32 @@ jobs:
           abm.config['precaution_pct'] = precaution_rate
           abm.config['vaccination_pct'] = vaccination_rate
           
-          # Run simulation
+          # Run simulation WITH TIMESERIES
           abm.initialize_simulation(N=num_agents, seed=42)
-          results = abm.run_simulation(verbose=True, save_timeseries=False)
+          results = abm.run_simulation(verbose=True, save_timeseries=True)
           
-          # Remove timeseries if present to save only summary
-          if 'timeseries' in results:
-              del results['timeseries']
+          # Extract timeseries data
+          timeseries_data = results.pop('timeseries', None)
           
-          # Save results
+          # Save summary results
           pd.DataFrame([results]).to_csv('results.csv', index=False)
+          print('✅ Summary saved to results.csv')
+          
+          # Save timeseries data separately
+          if timeseries_data:
+              ts_df = pd.DataFrame(timeseries_data)
+              ts_df.to_csv('timeseries.csv', index=False)
+              print(f'✅ Timeseries saved to timeseries.csv ({len(timeseries_data)} days)')
+          else:
+              print('⚠️ No timeseries data available')
+          
           print('Simulation completed successfully!')
-          print(f'Results saved to results.csv')
           "
       
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: results
-          path: results.csv
+          path: |
+            results.csv
+            timeseries.csv
