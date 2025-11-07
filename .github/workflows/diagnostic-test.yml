@@ -1,0 +1,102 @@
+name: 🔍 Diagnostic Test
+
+on:
+  workflow_dispatch:
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: List repository structure
+        run: |
+          echo "=== Repository Root ==="
+          ls -la
+          echo ""
+          echo "=== Full directory tree ==="
+          find . -type f -name "*.py" | head -20
+          echo ""
+          echo "=== Looking for covid_abm_model.py ==="
+          find . -name "covid_abm_model.py" -type f
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          echo "=== Installing packages ==="
+          pip install jax jaxlib numpy pandas matplotlib scipy tqdm
+          echo ""
+          echo "=== Installed packages ==="
+          pip list
+      
+      - name: Test JAX
+        run: |
+          python -c "import jax; print('JAX version:', jax.__version__); print('Devices:', jax.devices())"
+      
+      - name: Test importing covid_abm_model
+        run: |
+          python << 'EOF'
+          import sys
+          import os
+          
+          print("Python version:", sys.version)
+          print("Current directory:", os.getcwd())
+          print("Python path:", sys.path)
+          print("\nFiles in current directory:")
+          for f in os.listdir('.'):
+              print(f"  - {f}")
+          
+          print("\n=== Attempting import ===")
+          try:
+              from covid_abm_model import FixedGPUABM
+              print("✅ SUCCESS: Imported FixedGPUABM")
+              
+              # Try to instantiate
+              abm = FixedGPUABM()
+              print("✅ SUCCESS: Created FixedGPUABM instance")
+              
+              # Try to initialize with small population
+              abm.initialize_simulation(N=100, seed=42)
+              print("✅ SUCCESS: Initialized simulation")
+              
+              # Try to run for 1 day
+              results = abm.run_simulation(verbose=False, save_timeseries=True)
+              print("✅ SUCCESS: Ran simulation")
+              print(f"   Results keys: {list(results.keys())}")
+              
+          except ImportError as e:
+              print(f"❌ IMPORT ERROR: {e}")
+              import traceback
+              traceback.print_exc()
+              sys.exit(1)
+          except Exception as e:
+              print(f"❌ RUNTIME ERROR: {e}")
+              import traceback
+              traceback.print_exc()
+              sys.exit(1)
+          
+          print("\n✅ ALL TESTS PASSED!")
+          EOF
+      
+      - name: Summary
+        if: always()
+        run: |
+          echo ""
+          echo "=================================="
+          echo "🔍 DIAGNOSTIC SUMMARY"
+          echo "=================================="
+          echo "Check the logs above to see:"
+          echo "1. Where covid_abm_model.py is located"
+          echo "2. If JAX installed correctly"
+          echo "3. If the model can be imported"
+          echo "4. If simulations can run"
+          echo ""
+          echo "If any step failed, check that step's error message"
+          echo "=================================="
