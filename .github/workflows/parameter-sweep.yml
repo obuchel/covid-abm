@@ -1,0 +1,110 @@
+name: Parameter Sweep
+on:
+  workflow_dispatch:
+    inputs:
+      num_agents:
+        description: 'Number of agents'
+        required: true
+        default: '10000'
+        type: string
+      simulation_days:
+        description: 'Simulation duration (days)'
+        required: true
+        default: '180'
+        type: string
+      num_runs:
+        description: 'Number of runs per parameter value'
+        required: true
+        default: '3'
+        type: string
+
+jobs:
+  sweep:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        spread_chance: [5, 10, 15, 20]
+        precaution_rate: [0, 30, 50, 80]
+        vaccination_rate: [0, 50, 80]
+        run_number: [1, 2, 3]
+      fail-fast: false
+      max-parallel: 5
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      
+      - name: Install dependencies
+        run: pip install "jax[cpu]" numpy pandas matplotlib
+      
+      - name: Run simulation
+        env:
+          NUM_AGENTS: ${{ github.event.inputs.num_agents }}
+          SIMULATION_DAYS: ${{ github.event.inputs.simulation_days }}
+          SPREAD_CHANCE: ${{ matrix.spread_chance }}
+          PRECAUTION_RATE: ${{ matrix.precaution_rate }}
+          VACCINATION_RATE: ${{ matrix.vaccination_rate }}
+          RUN_NUMBER: ${{ matrix.run_number }}
+        run: |
+          python3 -c "
+          import os
+          from covid_abm_model import FixedGPUABM
+          import pandas as pd
+          
+          # Read parameters
+          num_agents = int(os.environ['NUM_AGENTS'])
+          simulation_days = int(os.environ['SIMULATION_DAYS'])
+          spread_chance = float(os.environ['SPREAD_CHANCE'])
+          precaution_rate = float(os.environ['PRECAUTION_RATE'])
+          vaccination_rate = float(os.environ['VACCINATION_RATE'])
+          run_number = int(os.environ['RUN_NUMBER'])
+          
+          print(f'Run {run_number}: Spread={spread_chance}%, Precaution={precaution_rate}%, Vacc={vaccination_rate}%')
+          
+          # Initialize with DIFFERENT seed for each run
+          abm = FixedGPUABM()
+          abm.config['max_days'] = simulation_days
+          abm.config['covid_spread_chance_pct'] = spread_chance
+          abm.config['precaution_pct'] = precaution_rate
+          abm.config['vaccination_pct'] = vaccination_rate
+          
+          # IMPORTANT: Use different seed for each run
+          seed = 42 + run_number + int(spread_chance * 100) + int(precaution_rate) + int(vaccination_rate)
+          abm.initialize_simulation(N=num_agents, seed=seed)
+          results = abm.run_simulation(verbose=True, save_timeseries=True)
+          
+          # Extract and save data
+          timeseries_data = results.pop('timeseries', None)
+          
+          # Add parameter info to summary
+          results['spread_chance'] = spread_chance
+          results['precaution_rate'] = precaution_rate
+          results['vaccination_rate'] = vaccination_rate
+          results['run_number'] = run_number
+          
+          # Save summary
+          pd.DataFrame([results]).to_csv('results.csv', index=False)
+          
+          # Save timeseries with parameter info
+          if timeseries_data:
+              ts_df = pd.DataFrame(timeseries_data)
+              ts_df['spread_chance'] = spread_chance
+              ts_df['precaution_rate'] = precaution_rate
+              ts_df['vaccination_rate'] = vaccination_rate
+              ts_df['run_number'] = run_number
+              ts_df.to_csv('timeseries.csv', index=False)
+              print(f'✅ Saved {len(timeseries_data)} days of data')
+          
+          print('✅ Simulation complete!')
+          "
+      
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: results-spread${{ matrix.spread_chance }}-prec${{ matrix.precaution_rate }}-vacc${{ matrix.vaccination_rate }}-run${{ matrix.run_number }}
+          path: |
+            results.csv
+            timeseries.csv
