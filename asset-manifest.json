@@ -1,0 +1,13 @@
+{
+  "files": {
+    "main.css": "/covid-abm/static/css/main.ce0e33df.css",
+    "main.js": "/covid-abm/static/js/main.f5a1cd17.js",
+    "index.html": "/covid-abm/index.html",
+    "main.ce0e33df.css.map": "/covid-abm/static/css/main.ce0e33df.css.map",
+    "main.f5a1cd17.js.map": "/covid-abm/static/js/main.f5a1cd17.js.map"
+  },
+  "entrypoints": [
+    "static/css/main.ce0e33df.css",
+    "static/js/main.f5a1cd17.js"
+  ]
+}
