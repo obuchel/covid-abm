@@ -1,13 +1,13 @@
 {
   "files": {
-    "main.css": "/covid-abm/static/css/main.952e279a.css",
-    "main.js": "/covid-abm/static/js/main.0a3bac08.js",
+    "main.css": "/covid-abm/static/css/main.50958cbb.css",
+    "main.js": "/covid-abm/static/js/main.2922f00c.js",
     "index.html": "/covid-abm/index.html",
-    "main.952e279a.css.map": "/covid-abm/static/css/main.952e279a.css.map",
-    "main.0a3bac08.js.map": "/covid-abm/static/js/main.0a3bac08.js.map"
+    "main.50958cbb.css.map": "/covid-abm/static/css/main.50958cbb.css.map",
+    "main.2922f00c.js.map": "/covid-abm/static/js/main.2922f00c.js.map"
   },
   "entrypoints": [
-    "static/css/main.952e279a.css",
-    "static/js/main.0a3bac08.js"
+    "static/css/main.50958cbb.css",
+    "static/js/main.2922f00c.js"
   ]
 }
