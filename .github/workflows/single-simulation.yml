@@ -48,19 +48,39 @@ jobs:
         run: pip install "jax[cpu]" numpy pandas
       
       - name: Run simulation
+        env:
+          NUM_AGENTS: ${{ github.event.inputs.num_agents }}
+          SIMULATION_DAYS: ${{ github.event.inputs.simulation_days }}
+          SPREAD_CHANCE: ${{ github.event.inputs.spread_chance }}
+          PRECAUTION_RATE: ${{ github.event.inputs.precaution_rate }}
+          VACCINATION_RATE: ${{ github.event.inputs.vaccination_rate }}
         run: |
           python << 'EOF'
+          import os
           from covid_abm_model import FixedGPUABM
           import pandas as pd
           
+          # Read parameters from environment variables
+          num_agents = int(os.environ['NUM_AGENTS'])
+          simulation_days = int(os.environ['SIMULATION_DAYS'])
+          spread_chance = float(os.environ['SPREAD_CHANCE'])
+          precaution_rate = float(os.environ['PRECAUTION_RATE'])
+          vaccination_rate = float(os.environ['VACCINATION_RATE'])
+          
+          # Initialize and configure ABM
           abm = FixedGPUABM()
-          abm.config['max_days'] = ${{ github.event.inputs.simulation_days }}
-          abm.config['covid_spread_chance_pct'] = ${{ github.event.inputs.spread_chance }}
-          abm.config['precaution_pct'] = ${{ github.event.inputs.precaution_rate }}
-          abm.config['vaccination_pct'] = ${{ github.event.inputs.vaccination_rate }}
-          abm.initialize_simulation(N=${{ github.event.inputs.num_agents }}, seed=42)
+          abm.config['max_days'] = simulation_days
+          abm.config['covid_spread_chance_pct'] = spread_chance
+          abm.config['precaution_pct'] = precaution_rate
+          abm.config['vaccination_pct'] = vaccination_rate
+          
+          # Run simulation
+          abm.initialize_simulation(N=num_agents, seed=42)
           results = abm.run_simulation(verbose=True)
+          
+          # Save results
           pd.DataFrame([results]).to_csv('results.csv', index=False)
+          print("Simulation completed successfully!")
           EOF
       
       - uses: actions/upload-artifact@v4
