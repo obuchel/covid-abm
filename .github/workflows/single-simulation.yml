@@ -28,7 +28,7 @@ on:
         default: '80'
         type: string
       num_replications:
-        description: 'Number of parallel replications'
+        description: 'Not used'
         required: true
         default: '1'
         type: string
@@ -38,71 +38,33 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
       
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.10'
       
       - name: Install dependencies
-        run: |
-          pip install --upgrade pip
-          pip install "jax[cpu]" numpy pandas matplotlib scipy tqdm
+        run: pip install "jax[cpu]" numpy pandas
       
       - name: Run simulation
         run: |
           python << 'EOF'
-          import sys
-          import traceback
+          from covid_abm_model import FixedGPUABM
           import pandas as pd
-          import inspect
           
-          try:
-              from covid_abm_model import FixedGPUABM
-              
-              abm = FixedGPUABM()
-              abm.config['max_days'] = ${{ github.event.inputs.simulation_days }}
-              abm.config['covid_spread_chance_pct'] = ${{ github.event.inputs.spread_chance }}
-              abm.config['precaution_pct'] = ${{ github.event.inputs.precaution_rate }}
-              abm.config['vaccination_pct'] = ${{ github.event.inputs.vaccination_rate }}
-              
-              abm.initialize_simulation(N=${{ github.event.inputs.num_agents }}, seed=42)
-              
-              sig = inspect.signature(abm.run_simulation)
-              has_timeseries = 'save_timeseries' in sig.parameters
-              
-              if has_timeseries:
-                  results = abm.run_simulation(verbose=True, save_timeseries=True)
-                  timeseries = results.pop('timeseries', None)
-              else:
-                  results = abm.run_simulation(verbose=True)
-                  timeseries = None
-              
-              pd.DataFrame([results]).to_csv('results_summary.csv', index=False)
-              
-              if timeseries:
-                  pd.DataFrame(timeseries).to_csv('results_timeseries.csv', index=False)
-              else:
-                  pd.DataFrame([{'day': 0, 'infected': 0, 'immune': 0, 'long_covid': 0}]).to_csv('results_timeseries.csv', index=False)
-              
-              print("\n✅ SUCCESS")
-              
-          except Exception as e:
-              print(f"\n❌ ERROR: {e}")
-              traceback.print_exc()
-              pd.DataFrame([{'error': str(e)}]).to_csv('results_summary.csv', index=False)
-              pd.DataFrame([{'error': str(e)}]).to_csv('results_timeseries.csv', index=False)
-              sys.exit(1)
+          abm = FixedGPUABM()
+          abm.config['max_days'] = ${{ github.event.inputs.simulation_days }}
+          abm.config['covid_spread_chance_pct'] = ${{ github.event.inputs.spread_chance }}
+          abm.config['precaution_pct'] = ${{ github.event.inputs.precaution_rate }}
+          abm.config['vaccination_pct'] = ${{ github.event.inputs.vaccination_rate }}
+          abm.initialize_simulation(N=${{ github.event.inputs.num_agents }}, seed=42)
+          results = abm.run_simulation(verbose=True)
+          pd.DataFrame([results]).to_csv('results.csv', index=False)
           EOF
       
-      - name: Upload results
+      - uses: actions/upload-artifact@v4
         if: always()
-        uses: actions/upload-artifact@v4
         with:
-          name: simulation-results
-          path: |
-            results_summary.csv
-            results_timeseries.csv
-          retention-days: 30
+          name: results
+          path: results.csv
