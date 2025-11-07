@@ -1,5 +1,4 @@
 name: Single COVID-19 Simulation
-
 on:
   workflow_dispatch:
     inputs:
