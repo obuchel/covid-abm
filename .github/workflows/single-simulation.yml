@@ -27,11 +27,6 @@ on:
         required: true
         default: '80'
         type: string
-      num_replications:
-        description: 'Not used'
-        required: true
-        default: '1'
-        type: string
 
 jobs:
   simulate:
@@ -54,54 +49,68 @@ jobs:
           SPREAD_CHANCE: ${{ github.event.inputs.spread_chance }}
           PRECAUTION_RATE: ${{ github.event.inputs.precaution_rate }}
           VACCINATION_RATE: ${{ github.event.inputs.vaccination_rate }}
+          RUN_ID: ${{ github.run_number }}
         run: |
           python3 -c "
           import os
+          import time
           from covid_abm_model import FixedGPUABM
           import pandas as pd
           
-          # Read parameters from environment variables
+          # Read parameters
           num_agents = int(os.environ['NUM_AGENTS'])
           simulation_days = int(os.environ['SIMULATION_DAYS'])
           spread_chance = float(os.environ['SPREAD_CHANCE'])
           precaution_rate = float(os.environ['PRECAUTION_RATE'])
           vaccination_rate = float(os.environ['VACCINATION_RATE'])
+          run_id = int(os.environ['RUN_ID'])
           
-          print(f'Starting simulation with {num_agents} agents for {simulation_days} days')
+          print(f'Run #{run_id}: {num_agents} agents, {simulation_days} days')
+          print(f'Parameters: Spread={spread_chance}%, Precaution={precaution_rate}%, Vacc={vaccination_rate}%')
           
-          # Initialize and configure ABM
+          # Initialize with UNIQUE seed based on run number and timestamp
+          seed = run_id * 1000 + int(time.time()) % 1000
+          
           abm = FixedGPUABM()
           abm.config['max_days'] = simulation_days
           abm.config['covid_spread_chance_pct'] = spread_chance
           abm.config['precaution_pct'] = precaution_rate
           abm.config['vaccination_pct'] = vaccination_rate
           
-          # Run simulation WITH TIMESERIES
-          abm.initialize_simulation(N=num_agents, seed=42)
+          abm.initialize_simulation(N=num_agents, seed=seed)
           results = abm.run_simulation(verbose=True, save_timeseries=True)
           
-          # Extract timeseries data
+          # Extract timeseries
           timeseries_data = results.pop('timeseries', None)
           
-          # Save summary results
-          pd.DataFrame([results]).to_csv('results.csv', index=False)
-          print('✅ Summary saved to results.csv')
+          # Add metadata to summary
+          results['spread_chance'] = spread_chance
+          results['precaution_rate'] = precaution_rate
+          results['vaccination_rate'] = vaccination_rate
+          results['run_id'] = run_id
+          results['seed'] = seed
           
-          # Save timeseries data separately
+          # Save files
+          pd.DataFrame([results]).to_csv('results.csv', index=False)
+          print('✅ Summary saved')
+          
           if timeseries_data:
               ts_df = pd.DataFrame(timeseries_data)
+              # Add parameters to each row for easy identification
+              ts_df['spread_chance'] = spread_chance
+              ts_df['precaution_rate'] = precaution_rate
+              ts_df['vaccination_rate'] = vaccination_rate
+              ts_df['run_id'] = run_id
               ts_df.to_csv('timeseries.csv', index=False)
-              print(f'✅ Timeseries saved to timeseries.csv ({len(timeseries_data)} days)')
-          else:
-              print('⚠️ No timeseries data available')
+              print(f'✅ Timeseries saved ({len(timeseries_data)} days)')
           
-          print('Simulation completed successfully!')
+          print(f'✅ Complete! Seed: {seed}')
           "
       
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: results
+          name: run-${{ github.run_number }}-results
           path: |
             results.csv
             timeseries.csv
