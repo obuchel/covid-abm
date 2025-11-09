@@ -1,31 +1,15 @@
-"""
-Parameter Sweep with Seed Arrays for Publication
-Combines parameter exploration with uncertainty quantification
-"""
-
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 from covid_abm_model import FixedGPUABM
 import time
-
-# ============================================
-# CONFIGURATION
-# ============================================
-
-# Seed array for uncertainty quantification
 SEED_ARRAY = [42, 123, 456, 789, 1011, 2022, 3033, 4044, 5055, 6066]
-# Using 10 seeds gives good statistical power
-
-# Parameter sweep configuration
 PARAMETER_SWEEP = {
     'covid_spread_chance_pct': [5, 10, 15, 20],
     'vaccination_pct': [0, 30, 50, 70, 90],
     'precaution_pct': [0, 25, 50, 75],
 }
-
-# Fixed baseline parameters (not swept)
 BASELINE = {
     'max_days': 365,
     'initial_infected_agents': 5,
